@@ -21,8 +21,8 @@ class Listing:
 
 class ConversionObservation:
 
-    def __init__(self, bidPrice: float, askPrice: float, transportFees: float, exportTariff: float, importTariff: float,
-                 sunlight: float, humidity: float):
+    def __init__(self, bidPrice: float, askPrice: float, transportFees: float, exportTariff: float,
+                 importTariff: float, sunlight: float, humidity: float):
         self.bidPrice = bidPrice
         self.askPrice = askPrice
         self.transportFees = transportFees
@@ -60,14 +60,12 @@ class Order:
 
 
 class OrderDepth:
-
     def __init__(self):
         self.buy_orders: Dict[int, int] = {}
         self.sell_orders: Dict[int, int] = {}
 
 
 class Trade:
-
     def __init__(self, symbol: Symbol, price: int, quantity: int, buyer: UserId = None, seller: UserId = None,
                  timestamp: int = 0) -> None:
         self.symbol = symbol
