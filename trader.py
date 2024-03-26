@@ -1,12 +1,15 @@
 from datamodel import OrderDepth, UserId, TradingState, Order
 from typing import List
 import string
+import pickle
 
 
 class Trader:
 
 
     def run(self, state: TradingState):
+        # serialize the mid_price for Starfruit as part of it's trading strategy
+
         # Only method required. It takes all buy and sell orders for all symbols as an input,
         # and outputs a list of orders to be sent.
         print("traderData: " + state.traderData)
