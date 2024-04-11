@@ -4,7 +4,7 @@ import string
 import jsonpickle
 import json
 import numpy as np
-from enum import enum
+import enum
 import math
 
 # constants
@@ -21,7 +21,7 @@ DEFAULT_PRICES = {
     STARFRUIT : 5_000, # starfruit price will change
 }
 
-class STRATEGY_TYPE(enum):
+class STRATEGY_TYPE(enum.Enum):
     NAIVE = 0
     ROBUST = 1
     COMPLEX = 2
@@ -150,8 +150,8 @@ class Trader:
 
         self.position_limit = 20 # set the position limit as 20 for the tutorial/round1 TODO Remember to change this for each round
         self.cash = 0 # start with 0 cash
-        self.amethyst_strategy = STRATEGY_TYPE.NAIVE # test different strategies
-        self.starfruit_strategy = STRATEGY_TYPE.NAIVE # test different strategies
+        self.amethyst_strategy_type = STRATEGY_TYPE.NAIVE # test different strategies
+        self.starfruit_strategy_type = STRATEGY_TYPE.NAIVE # test different strategies
         self.vol_threshold = 1.5 # our volatility strategy
         
 
@@ -171,7 +171,6 @@ class Trader:
         
         best_bid = max(market_bids)
         best_ask = min(market_asks)
-        logger.print(str((best_bid + best_ask)/2))
         return (best_bid + best_ask)/2
     
     def get_position(self, product, state :TradingState) -> int:
@@ -257,7 +256,7 @@ class Trader:
         """Computes position sizing for a given product based on volatility"""
         return 
     
-    def update_ema_prices(self, product, state :TradingState) -> None:
+    def update_ema_prices(self, state :TradingState) -> None:
         """
         Update the exponential moving average of the prices of each product.
         """
@@ -268,7 +267,8 @@ class Trader:
             if self.ema_prices[product] == None:
                 self.ema_prices[product] = mid_price
             else:
-                ema_param = (2 / (self.rolling_window + 1)) # calculate the ema_param #TODO could mess with this value
+                #ema_param = (2 / (self.rolling_window + 1)) # calculate the ema_param #TODO could mess with this value
+                ema_param = .5
                 self.ema_prices[product] = ema_param * mid_price + (1-ema_param) * self.ema_prices[product]
         return
     
@@ -279,30 +279,29 @@ class Trader:
         ask_volume = - self.position_limit - position_amethysts 
 
         orders = []
-        orders.append(Order(AMETHYSTS, DEFAULT_PRICES[AMETHYSTS] - 2, bid_volume))
-        orders.append(Order(AMETHYSTS, DEFAULT_PRICES[AMETHYSTS] + 2, ask_volume))
+        orders.append(Order(AMETHYSTS, DEFAULT_PRICES[AMETHYSTS] - 1, bid_volume))
+        orders.append(Order(AMETHYSTS, DEFAULT_PRICES[AMETHYSTS] + 1, ask_volume))
+
         return orders
 
     def amethyst_strategy(self, state :TradingState) -> None:
         """
         Market make around 10000. 
-        - Naive Strategy is to post max order sizes at sell price +2 and buy price -2
-        - Robust Strategy is to buy/sell +2 and -2 and calculating posiiton size based on volume/current market orders
+        - Naive Strategy is to post max order sizes at sell price +1 and buy price -1
+        - Robust Strategy is to buy/sell +1 and -1 and calculating posiiton size based on volume/current market orders
         """
 
-        if self.amethyst_strategy == STRATEGY_TYPE.NAIVE:
+        if self.amethyst_strategy_type == STRATEGY_TYPE.NAIVE:
             orders = self.amethyst_naive_strategy(state)
-        elif self.amethyst_strategy == STRATEGY_TYPE.ROBUST:
+        elif self.amethyst_strategy_type == STRATEGY_TYPE.ROBUST:
             #TODO
             print()
-        elif self.amethyst_strategy == STRATEGY_TYPE.COMPLEX:
+        elif self.amethyst_strategy_type == STRATEGY_TYPE.COMPLEX:
             # TODO 
             print()
         return orders 
     
-    def starfruit_naive_strategy(self, state :TradingState):
-
-        def calculate_linear_reg(self, product):
+    def calculate_linear_reg(self, product):
             """Runs a least squares linear regression through the price data in the self.rolling_windows timeframe"""
             y_vals = np.array(self.price_history[product])
             x_vals = np.arange(0,self.rolling_window)
@@ -312,17 +311,20 @@ class Trader:
             b = y_mean - slope * x_mean
 
             return slope, b
+    
+    def starfruit_naive_strategy(self, state :TradingState) -> List[Order]:
 
         volatility = self.calculate_volatility(STARFRUIT)
 
         position_starfruit = self.get_position(STARFRUIT, state)
 
         bid_volume = self.position_limit - position_starfruit
-        ask_volume = - self.position_limit - position_starfruit
+        ask_volume = -self.position_limit - position_starfruit
+        orders = []
 
+        logger.print("HERE")
 
         if volatility <= self.vol_threshold:
-            orders = []
 
             # market make around the ema
             orders.append(Order(STARFRUIT, math.floor(self.ema_prices[STARFRUIT] - 1), bid_volume))
@@ -332,8 +334,7 @@ class Trader:
         
         else: # if the volatility is high, then predict the price to increase/decrease directionally following a linear trend
 
-            slope, _ = calculate_linear_reg(STARFRUIT)
-            position_starfruit = self.get_position(STARFRUIT, state)
+            slope, _ = self.calculate_linear_reg(STARFRUIT)
 
             if slope > 0:
                 # we predict the mid price will continue to go up and that there is likely more mispricing
@@ -350,6 +351,8 @@ class Trader:
                 # we want to liquidate our position until the trend reverses, so our ask volume will still be the same.
                 orders.append(Order(STARFRUIT, math.ceil(self.ema_prices[STARFRUIT]), ask_volume))
 
+            return orders
+
     
     def starfruit_strategy(self, state :TradingState) -> None:
         """
@@ -357,12 +360,12 @@ class Trader:
         - Naive Strategy is buy/sell to the max position limit at the ema_price + 1/-1 unless the volatility of prices is above +1.5/-1.5 (which suggests price corrections). At which point we then trade on the linear trend
 
         """
-        if self.starfruit_strategy == STRATEGY_TYPE.NAIVE:
+        if self.starfruit_strategy_type == STRATEGY_TYPE.NAIVE:
             orders = self.starfruit_naive_strategy(state)
-        elif self.starfruit_strategy == STRATEGY_TYPE.ROBUST:
+        elif self.starfruit_strategy_type == STRATEGY_TYPE.ROBUST:
             #TODO
             print()
-        elif self.starfruit_strategy == STRATEGY_TYPE.COMPLEX:
+        elif self.starfruit_strategy_type == STRATEGY_TYPE.COMPLEX:
             # TODO 
             print()
         return orders
@@ -372,7 +375,9 @@ class Trader:
         if state.traderData and state.traderData.strip():
             self.price_history = jsonpickle.decode(state.traderData)
         else:
-            raise ValueError("No TraderData")
+            self.price_history = dict()
+            for product in PRODUCTS:
+                self.price_history[product] = []
             
         for product in PRODUCTS:
             # Update the price history with new data from the current iteration
@@ -388,29 +393,39 @@ class Trader:
     def run(self, state: TradingState):
         # Only method required. It takes all buy and sell orders for all symbols as an input,
         # and outputs a list of orders to be sent.
-        logger.print("traderData: " + state.traderData)
-        logger.print("Observations: " + str(state.observations))
+        #logger.print("traderData: " + state.traderData)
+        logger.print("#-----------------------------------#\n")
+        logger.print(self.ema_prices)
+        logger.print(self.price_history)
+        #logger.print("Observations: " + str(state.observations))
         result = {}
         for product in state.order_depths:
             order_depth: OrderDepth = state.order_depths[product]
             orders: List[Order] = []
 
+            """
             logger.print(product)
             logger.print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", " + str(order_depth.buy_orders) + ", Sell order depth : " + str(len(order_depth.sell_orders)) + ", " + str(order_depth.sell_orders))
             logger.print("Own Trades: " + str(state.own_trades))
             logger.print("Market Trades: " + str(state.market_trades))
             logger.print("Own Positions: " + str(state.position))
             logger.print()
+            """
+
+            self.update_ema_prices(state)
+
+            orders = []
 
             if product == "AMETHYSTS":
-                acceptable_price = PRODUCTS[0] # market make around 10k. 
-                logger.print("Acceptable price : " + acceptable_price)
+                acceptable_price = DEFAULT_PRICES[AMETHYSTS] # market make around 10k. 
+                logger.print("Acceptable price : " + str(acceptable_price))
                 orders = self.amethyst_strategy(state) #TODO position sizing for other strategies
 
             elif product == "STARFRUIT":
-                 if len(self.price_history) >= self.rolling_window:
+                if len(self.price_history[product]) >= self.rolling_window:
                     logger.print("Acceptable price : " + str(self.ema_prices))
                     orders = self.starfruit_strategy(state) #TODO position sizing for other strategies
+                    #logger.print("HERE: " + str(orders))
 
             logger.print("Own Orders: " + str(orders))
 
