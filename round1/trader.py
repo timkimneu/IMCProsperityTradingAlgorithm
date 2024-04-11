@@ -35,6 +35,7 @@ class Logger:
         self.logs += sep.join(map(str, objects)) + end
 
     def flush(self, state: TradingState, orders: dict[Symbol, list[Order]], conversions: int, trader_data: str) -> None:
+        """
         base_length = len(self.to_json([
             self.compress_state(state, ""),
             self.compress_orders(orders),
@@ -53,6 +54,7 @@ class Logger:
             self.truncate(trader_data, max_item_length),
             self.truncate(self.logs, max_item_length),
         ]))
+        """
 
         self.logs = ""
 
@@ -151,8 +153,8 @@ class Trader:
         self.position_limit = 20 # set the position limit as 20 for the tutorial/round1 TODO Remember to change this for each round
         self.cash = 0 # start with 0 cash
         self.amethyst_strategy_type = STRATEGY_TYPE.NAIVE # test different strategies
-        self.starfruit_strategy_type = STRATEGY_TYPE.NAIVE # test different strategies
-        self.vol_threshold = 1.5 # our volatility strategy
+        self.starfruit_strategy_type = STRATEGY_TYPE.NAIVE# test different strategies
+        self.vol_threshold = 1.5 # our volatility threshold #TODO may change
         
 
     def get_mid_price(self, product, state :TradingState) -> float:
@@ -185,7 +187,31 @@ class Trader:
     
     #TODO
     def update_pnl(self, state :TradingState) -> None:
-        #TODO
+        """
+        Updates the pnl.
+        """
+        def update_cash():
+            # Update cash
+            for product in state.own_trades:
+                for trade in state.own_trades[product]:
+                    if trade.timestamp != state.timestamp:
+                        # Trade was already analyzed
+                        continue
+
+                    if trade.buyer == "SUBMISSION":
+                        self.cash -= trade.quantity * trade.price
+                    if trade.seller == "SUBMISSION":
+                        self.cash += trade.quantity * trade.price
+        
+        def get_value_on_positions():
+            value = 0
+            for product in state.position:
+                value += self.get_value_on_product(product, state)
+            return value
+        
+        # Update cash
+        update_cash()
+        return self.cash + get_value_on_positions()
         return 
 
     def calculate_volume(self, product, state :TradingState) -> tuple[int,int]:
@@ -217,30 +243,79 @@ class Trader:
         filtered_order_book = {}
 
         if buy_order:
-            buy_orders = order_depth.buy_orders.items()
-            for idx in range(0,len(buy_orders)):
-                bid_price, bid_amount = buy_orders[idx]
+            buy_orders = order_depth.buy_orders
+            for bid_price in buy_orders.keys():
+                # if the bid price is greater than the acceptable_price then sell to them
                 if bid_price >= price:
-                    filtered_order_book.update(buy_orders[idx])
+                    filtered_order_book.update({bid_price:buy_orders[bid_price]})
         else:
-            sell_orders = order_depth.sell_orders.items()
-            for idx in range(0,len(sell_orders)):
-                ask_price, ask_amount = sell_orders[idx]
+            sell_orders = order_depth.sell_orders
+            for ask_price in sell_orders.keys():
+                # if the ask price is below the acceptable_price then buy from them
                 if ask_price <= price:
-                    filtered_order_book.update(sell_orders[idx])
+                    filtered_order_book.update({ask_price:sell_orders[ask_price]})
 
         return filtered_order_book
     
-    def fill_orders(order_book :dict[int,int], product) -> List[Order]:
+    def fill_orders(self,order_book :dict[int,int], product, quantity :int, buy_orders :bool) -> tuple[int,List[Order]]:
         """
-        Fills a dictionary of market orders in hopes of executing a trade.
+        Fills a dictionary of market orders in hopes of executing a trade. The order_book is assumed to be filtered to appropriate price.
 
         - order_book: dictionary of {price, quantity (+/-)} pairs 
         - product: the product
+        - quantity: the abs(volume) of the trades to fill 
+        - buy_order: if we are filling buy_orders (TRUE) or sell_orders (FALSE)
 
-        Returns a List[Order(price, symbol, quantity)]
+        Returns a quantity_left_over, List[Order(price, symbol, quantity)]
         """
-        return
+        orders = []
+
+        if buy_orders: 
+            # filling buy orders
+            if len(order_book) == 0:
+                return quantity, orders 
+            for order_price, order_quantity in order_book.items():        
+                if order_quantity > quantity: 
+                    # fill as much as possible
+                    order_quantity = quantity
+                    quantity = 0
+                else:
+                    quantity = quantity - order_quantity
+                
+                # create a sell order to match the buy order.
+                orders.append(Order(product, order_price, -order_quantity))
+
+                if quantity == 0:
+                    break # break out of the loop
+                elif quantity < 0:
+                    raise ValueError("Miscalculated position sizes somehow" + str(order_book) + str(quantity))
+            return quantity, orders
+                
+        else:
+            # filling sell orders
+            if len(order_book) == 0:
+                return quantity, orders 
+        
+            for order_price, order_quantity in order_book.items():
+                # sell orders have negative quantity, absolute value of the quantity
+                order_quantity = abs(order_quantity)
+
+                if order_quantity > quantity:
+                    order_quantity = quantity
+                    quantity = 0
+                else:
+                    quantity = quantity - order_quantity
+
+                # create a buy order to match the sell order, quantity is positive 
+                orders.append(Order(product, order_price, quantity))
+
+                if quantity == 0:
+                    break # break out of the loop
+                elif quantity < 0:
+                    raise ValueError("Miscalculated position sizes somehow" + str(order_book) + str(quantity))
+            return quantity, orders
+
+        
     
     def calculate_volatility(self, product) -> float:
         """
@@ -283,6 +358,42 @@ class Trader:
         orders.append(Order(AMETHYSTS, DEFAULT_PRICES[AMETHYSTS] + 1, ask_volume))
 
         return orders
+    
+    def amethyst_robust_strategy(self, state :TradingState) -> List[Order]:
+        """
+        Arbitrage differences in bid and ask around 10,000, breaking down the orderbook to strategically place orders.
+        """
+        acceptable_price = DEFAULT_PRICES[AMETHYSTS]
+        position_amethysts = self.get_position(AMETHYSTS, state)
+
+        max_bid_volume = self.position_limit - position_amethysts 
+        max_ask_volume = -self.position_limit - position_amethysts 
+
+        # filter the orderbook for ask orders below acceptable price and buy orders above the acceptable price
+        buy_orders = self.filter_orderbook(AMETHYSTS, acceptable_price, state, True)
+        sell_orders = self.filter_orderbook(AMETHYSTS, acceptable_price, state, False)
+
+        orders = []
+
+        # fill the acceptable orders up to the max_bid_volume
+        ask_quantity_remainder, filled_orders = self.fill_orders(buy_orders, AMETHYSTS, abs(max_ask_volume), True)
+        orders += filled_orders
+
+        # fill the acceptable orders up to the max_ask_volume 
+        buy_quantity_remainder, filled_orders = self.fill_orders(sell_orders, AMETHYSTS, abs(max_bid_volume), True)
+        orders += filled_orders
+       
+        # if the position is heavily positive or negative, make orders at market price:
+        """
+        if position_amethysts > 10 and ask_quantity_remainder != 0:
+            orders.append(Order(AMETHYSTS, acceptable_price, -ask_quantity_remainder))
+
+        elif position_amethysts < -10 and buy_quantity_remainder != 0:
+            orders.append(Order(AMETHYSTS, acceptable_price, buy_quantity_remainder))
+        """
+
+        return orders
+
 
     def amethyst_strategy(self, state :TradingState) -> None:
         """
@@ -294,8 +405,7 @@ class Trader:
         if self.amethyst_strategy_type == STRATEGY_TYPE.NAIVE:
             orders = self.amethyst_naive_strategy(state)
         elif self.amethyst_strategy_type == STRATEGY_TYPE.ROBUST:
-            #TODO
-            print()
+            orders = self.amethyst_robust_strategy(state)
         elif self.amethyst_strategy_type == STRATEGY_TYPE.COMPLEX:
             # TODO 
             print()
@@ -322,19 +432,24 @@ class Trader:
         ask_volume = -self.position_limit - position_starfruit
         orders = []
 
-        logger.print("HERE")
+        slope, _ = self.calculate_linear_reg(STARFRUIT)
+        mid_price = self.get_mid_price(STARFRUIT,state)
+
+        #print("HERE")
 
         if volatility <= self.vol_threshold:
 
-            # market make around the ema
+            """
+            orders.append(Order(STARFRUIT, math.floor(mid_price + slope - 1), bid_volume))
+            orders.append(Order(STARFRUIT, math.ceil(mid_price + slope + 1), ask_volume))
+            """
+
             orders.append(Order(STARFRUIT, math.floor(self.ema_prices[STARFRUIT] - 1), bid_volume))
             orders.append(Order(STARFRUIT, math.ceil(self.ema_prices[STARFRUIT] + 1), ask_volume))
             
             return orders
         
         else: # if the volatility is high, then predict the price to increase/decrease directionally following a linear trend
-
-            slope, _ = self.calculate_linear_reg(STARFRUIT)
 
             if slope > 0:
                 # we predict the mid price will continue to go up and that there is likely more mispricing
@@ -352,6 +467,59 @@ class Trader:
                 orders.append(Order(STARFRUIT, math.ceil(self.ema_prices[STARFRUIT]), ask_volume))
 
             return orders
+        
+    def starfruit_robust_strategy(self, state :TradingState) -> List[Order]:
+
+        volatility = self.calculate_volatility(STARFRUIT)
+
+        position_starfruit = self.get_position(STARFRUIT, state)
+
+        bid_volume = self.position_limit - position_starfruit
+        ask_volume = -self.position_limit - position_starfruit
+        orders = []
+
+        print("HERE")
+
+        if volatility <= self.vol_threshold:
+
+            # market make around the ema, assume that since we are under the threshold our price estimate should be accurate. However, to account for mispricing (which would accumulate larger position sizes), we widen our spreads.
+            if position_starfruit == 0:
+                # Not long nor short
+                orders.append(Order(STARFRUIT, math.floor(self.ema_prices[STARFRUIT] - 1), bid_volume))
+                orders.append(Order(STARFRUIT, math.ceil(self.ema_prices[STARFRUIT] + 1), ask_volume))
+            
+            elif position_starfruit > 0:
+                # Long position
+                orders.append(Order(STARFRUIT, math.floor(self.ema_prices[STARFRUIT] - 2), bid_volume))
+                orders.append(Order(STARFRUIT, math.ceil(self.ema_prices[STARFRUIT]), ask_volume))
+
+            else:
+                # Short position
+                orders.append(Order(STARFRUIT, math.floor(self.ema_prices[STARFRUIT]), bid_volume))
+                orders.append(Order(STARFRUIT, math.ceil(self.ema_prices[STARFRUIT] + 2), ask_volume))
+            
+            return orders
+        
+        else: # if the volatility is high, then predict the price to increase/decrease directionally following a linear trend
+
+            slope, _ = self.calculate_linear_reg(STARFRUIT)
+
+            if slope > 0:
+                # we predict the mid price will continue to go up and that there is likely more mispricing
+                # we want to hold an overall long position. This means that in expectation that the price will go up, we place a bid
+                # slightly higher than expected. 
+                orders.append(Order(STARFRUIT, math.ceil(self.ema_prices[STARFRUIT]), bid_volume))
+                # we want to sell at a higher price, so we set the ask price higher
+                orders.append(Order(STARFRUIT, math.floor(self.ema_prices[STARFRUIT] + 2), ask_volume))
+
+            else:
+                # we predict that the mid price will continue to go down and that there is likely more mispricing
+                # we want to hold an overall short position. 
+                orders.append(Order(STARFRUIT, math.floor(self.ema_prices[STARFRUIT] - 2), bid_volume))
+                # we want to liquidate our position until the trend reverses, so our ask volume will still be the same.
+                orders.append(Order(STARFRUIT, math.ceil(self.ema_prices[STARFRUIT]), ask_volume))
+
+            return orders
 
     
     def starfruit_strategy(self, state :TradingState) -> None:
@@ -363,8 +531,7 @@ class Trader:
         if self.starfruit_strategy_type == STRATEGY_TYPE.NAIVE:
             orders = self.starfruit_naive_strategy(state)
         elif self.starfruit_strategy_type == STRATEGY_TYPE.ROBUST:
-            #TODO
-            print()
+            orders = self.starfruit_robust_strategy(state)
         elif self.starfruit_strategy_type == STRATEGY_TYPE.COMPLEX:
             # TODO 
             print()
@@ -393,43 +560,44 @@ class Trader:
     def run(self, state: TradingState):
         # Only method required. It takes all buy and sell orders for all symbols as an input,
         # and outputs a list of orders to be sent.
-        #logger.print("traderData: " + state.traderData)
-        logger.print("#-----------------------------------#\n")
-        logger.print(self.ema_prices)
-        logger.print(self.price_history)
-        #logger.print("Observations: " + str(state.observations))
+        #print("traderData: " + state.traderData + "|")
+        #print("EMA PRICES:" + str(self.ema_prices) + "|")
+        #print(str(self.price_history) + "|")
+        #print("Observations: " + str(state.observations) + "|")
         result = {}
         for product in state.order_depths:
             order_depth: OrderDepth = state.order_depths[product]
             orders: List[Order] = []
 
-            """
-            logger.print(product)
-            logger.print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", " + str(order_depth.buy_orders) + ", Sell order depth : " + str(len(order_depth.sell_orders)) + ", " + str(order_depth.sell_orders))
-            logger.print("Own Trades: " + str(state.own_trades))
-            logger.print("Market Trades: " + str(state.market_trades))
-            logger.print("Own Positions: " + str(state.position))
-            logger.print()
-            """
-
+            #print("------------|")
+            #print(product + "|")
+            #print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", " + str(order_depth.buy_orders) + ", Sell order depth : " + str(len(order_depth.sell_orders)) + ", " + str(order_depth.sell_orders) + "|")
+            #print("Own Trades: " + str(state.own_trades.get(product, None)) + "|")
+            #print("Market Trades: " + str(state.market_trades.get(product, None)) + "|")
+            #print("Own Positions: " + str(state.position.get(product, None)) + "|")
+            
+            self.update_pnl(state)
             self.update_ema_prices(state)
+            #print()
 
             orders = []
 
             if product == "AMETHYSTS":
                 acceptable_price = DEFAULT_PRICES[AMETHYSTS] # market make around 10k. 
-                logger.print("Acceptable price : " + str(acceptable_price))
+                #print("Acceptable price : " + str(acceptable_price))
                 orders = self.amethyst_strategy(state) #TODO position sizing for other strategies
 
             elif product == "STARFRUIT":
                 if len(self.price_history[product]) >= self.rolling_window:
-                    logger.print("Acceptable price : " + str(self.ema_prices))
+                    #print("Acceptable price : " + str(self.ema_prices))
                     orders = self.starfruit_strategy(state) #TODO position sizing for other strategies
-                    #logger.print("HERE: " + str(orders))
+                    #print("HERE: " + str(orders))
 
-            logger.print("Own Orders: " + str(orders))
+            #print("Own Orders: " + str(orders) + "|")
 
             result[product] = orders
+
+        #print("Cash: " + str(self.cash) + "|")
             
         # serialize the previous mid_prices for STARFRUIT and store those values
         traderData = self.serialize_state(state) # String value holding Trader state data required.
@@ -447,7 +615,7 @@ class Trader:
     #if abs(-best_ask_amount + state.position[product]) > self.position_limit:
     #    best_ask_amount = self.position_limit - abs(state.position[product])
     if int(best_ask) < acceptable_price:
-        logger.print("BUY", str(-best_ask_amount) + "x", best_ask)
+        print("BUY", str(-best_ask_amount) + "x", best_ask)
         orders.append(Order(product, best_ask, -best_ask_amount))
 
 if len(order_depth.buy_orders) != 0:
@@ -457,6 +625,6 @@ if len(order_depth.buy_orders) != 0:
     #if abs(best_bid_amount + state.position[product]) > self.position_limit:
     #    best_bid_amount = self.position_limit - abs(state.position[product])
     if int(best_bid) > acceptable_price:
-        logger.print("SELL", str(best_bid_amount) + "x", best_bid)
+        print("SELL", str(best_bid_amount) + "x", best_bid)
         orders.append(Order(product, best_bid, -best_bid_amount))
 """
