@@ -1,8 +1,0 @@
-- Create script to parse the log .txt files and convert them to human readable json for purposes of visualizing the logs better
-
-# Trader  
-- Add code to prevent rejection for order sizes that exceed position limit and change the behavior to instead fill the order up until position limit
-
-- add trading signals for the mean reversion strategy, can be based on standard deviation from mean (z-score), the percent drift from mean, and check for drastic changes that might indicate the mean is shifting heavily
-- add stop-loss and take-profit behavior to mean reversion strategy
-
