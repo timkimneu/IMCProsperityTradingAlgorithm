@@ -155,6 +155,8 @@ class Trader:
         self.vol_threshold = 2 # our volatility threshold, changed from 1.5 to 2 because noticed that we were getting false signals
         self.max_trade_pct = .3 # our percentage of the max trade size that we are willing to allocate to a trade
         
+    #TODO TROLL STRATEGY IDEA. Confuse the bots in the market by placing crossover orders i.e. palce orders to sell 10 at 10003 and then
+    # place orders to buy 1 at 10005. Hopefully, the bots will get confused and buy the 10 orders at 10003 to sell at 10005 for the free arbitrage, but only 1 order is there to be filled, so you get to make (3 * 10) - 2 profit by offloading at 10003 above the fair price of 10000.
 
     def get_mid_price(self, product, state :TradingState) -> float:
         """Calculates the mid_price based on the average of the lowest ask and highest bid"""
@@ -626,7 +628,7 @@ class Trader:
         # It will be delivered as TradingState.traderData on next execution.
 
         conversions = 1 # not needed for round1
-        #logger.flush(state, result, conversions, traderData)
+        logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
 
 """

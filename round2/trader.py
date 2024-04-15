@@ -12,6 +12,14 @@ AMETHYSTS = "AMETHYSTS"
 STARFRUIT = "STARFRUIT"
 ORCHIDS = "ORCHIDS"
 
+OPTIMAL_SUNLIGHT = 7 * 360
+# any dip below 7 hours with 4% production dip for 10 minutes
+SUNLIGHT_RATE_OF_CHANGE = .04/10
+
+OPTIMAL_HUMIDITY = [60,80]
+# 2% dip in production for 5% humidity change outside optimal range
+HUMIDTY_RATE_OF_CHANGE = .4 # note humidity is already in percentage (%)
+
 POSITION_LIMITS = {
     ORCHIDS : 100,
     AMETHYSTS : 20,
