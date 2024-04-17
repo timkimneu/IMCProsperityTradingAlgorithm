@@ -627,28 +627,6 @@ class Trader:
         traderData = self.serialize_state(state) # String value holding Trader state data required.
         # It will be delivered as TradingState.traderData on next execution.
 
-        conversions = 1 # not needed for round1
+        conversions = None # not needed for round1
         logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
-
-"""
- if len(order_depth.sell_orders) != 0:
-    best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
-    #TODO fix the position size checks
-    # check if the amount would go over the position limit, if yes, then fill up to position limit
-    #if abs(-best_ask_amount + state.position[product]) > self.position_limit:
-    #    best_ask_amount = self.position_limit - abs(state.position[product])
-    if int(best_ask) < acceptable_price:
-        print("BUY", str(-best_ask_amount) + "x", best_ask)
-        orders.append(Order(product, best_ask, -best_ask_amount))
-
-if len(order_depth.buy_orders) != 0:
-    best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
-    #TODO fix the position size checks
-    # check if the amount would go over the position limit, if yes, then fill up to position limit
-    #if abs(best_bid_amount + state.position[product]) > self.position_limit:
-    #    best_bid_amount = self.position_limit - abs(state.position[product])
-    if int(best_bid) > acceptable_price:
-        print("SELL", str(best_bid_amount) + "x", best_bid)
-        orders.append(Order(product, best_bid, -best_bid_amount))
-"""
