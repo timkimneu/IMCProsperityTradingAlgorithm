@@ -98,10 +98,3 @@ class Trader:
     
 # Trading Strategies
 # def moving_avg(timeframe :int, state: TradingState) -> int:
-        """
-        Calculates the moving average based on the the past x days.
-        - timeframe : past x days
-        - state : current trading state
-
-        returns the predicted price
-        """
